@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using UnhollowerRuntimeLib;
 using UnityEngine;
+using UnityEngine.UI;
 using WatchTemplate.Classes;
 using static WatchTemplate.PluginInfo;
 
@@ -23,7 +24,6 @@ namespace WatchTemplate.Menu
             ClassInjector.RegisterTypeInIl2Cpp<Menu.Buttons>();
             CreateWatch();
             StartUpItems();
-            CreateAllButtons(); // Create all buttons at startup
         }
 
         public static void StartUpItems()
@@ -40,6 +40,7 @@ namespace WatchTemplate.Menu
                 {
                     CreateWatch();
                 }
+
                 if (WatchObjectComponent != null)
                 {
                     CleanUpWatchComponents();
@@ -62,23 +63,25 @@ namespace WatchTemplate.Menu
             Transform leftHand = GorillaTagger.Instance.leftHandTransform;
             Vector3 offset = leftHand.up * -0.32f + leftHand.forward * -0.01f + leftHand.right * -0.005f;
 
-            if (isTouching && !wasTouching && Menu == null)
+            if (isTouching && !wasTouching && Menu == null) // opem
             {
                 CreateMenu(leftHand, offset);
                 Status = true;
-                SetButtonVisibility(true);
+            }
+            else if (!isTouching && wasTouching && Menu != null) //close nw
+            {
+                UnityEngine.Object.Destroy(Menu);
+                Menu = null;
+                Status = false;
             }
             else if (Menu != null)
             {
                 UpdateMenuPosition(leftHand, offset);
             }
-            else if (!Status)
-            {
-                SetButtonVisibility(false);
-            }
 
             wasTouching = isTouching;
         }
+
 
         private static void CleanUpWatchComponents()
         {
@@ -105,8 +108,6 @@ namespace WatchTemplate.Menu
             var menuRenderer = Menu.GetComponent<Renderer>();
             menuRenderer.material = new Material(Materials.Standard());
             menuRenderer.material.color = MenuSettings.MenuColor;
-
-            ParentButtonsToMenu(); // Parent and position buttons here
         }
 
         private static void UpdateMenuPosition(Transform leftHand, Vector3 offset)
@@ -120,152 +121,11 @@ namespace WatchTemplate.Menu
             if (WatchObject != null) return;
 
             var huntComputer = GorillaTagger.Instance.offlineVRRig.huntComputer;
-            WatchObject = PhotonNetwork.Instantiate(
-                "gorillaprefabs/gorillahuntmanager",
-                GorillaTagger.Instance.leftHandTransform.position,
-                GorillaTagger.Instance.leftHandTransform.rotation,
-                0,
-                null
-            );
+            WatchObject = PhotonNetwork.Instantiate("gorillaprefabs/gorillahuntmanager",GorillaTagger.Instance.leftHandTransform.position,GorillaTagger.Instance.leftHandTransform.rotation, 0,null);
 
             WatchObjectComponent = huntComputer.GetComponent<GorillaHuntComputer>();
             CleanUpWatchComponents();
             UpdateWatchText();
-        }
-
-        public static void CreateAllButtons()
-        {
-            ClearExistingButtons();
-
-            float buttonOffset = 0.1f;
-            float buttonSpacing = 0.1f;
-
-            // Create buttons from the Buttons class configuration
-            foreach (var buttonGroup in Buttons.buttons)
-            {
-                foreach (var buttonInfo in buttonGroup)
-                {
-                    CreateButton(buttonOffset, buttonInfo);
-                    buttonOffset += buttonSpacing;
-                }
-            }
-
-            // Create disconnect button separately if needed
-            CreateDisconnectButton(buttonOffset);
-
-            SetButtonVisibility(false);
-        }
-
-        private static void ClearExistingButtons()
-        {
-            foreach (var button in buttonObjects)
-            {
-                if (button != null) UnityEngine.Object.Destroy(button);
-            }
-            buttonObjects.Clear();
-        }
-
-        public static void CreateButton(float offset, ButtonInfo buttonInfo)
-        {
-            GameObject button = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            button.layer = 2;
-            UnityEngine.Object.Destroy(button.GetComponent<Rigidbody>());
-            button.GetComponent<BoxCollider>().isTrigger = true;
-
-            // Parent will be set later, so position is temporary world position now
-            // We'll reposition properly on parenting
-
-            // Enable renderer so buttons are visible
-            var renderer = button.GetComponent<Renderer>();
-            renderer.enabled = true;
-
-            // Scale and position will be set after parenting
-            buttonObjects.Add(button);
-
-            var buttonComponent = button.AddComponent<ButtonComponent>();
-            buttonComponent.Initialize(buttonInfo);
-        }
-
-        public static void CreateDisconnectButton(float offset)
-        {
-            GameObject button = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            button.layer = 2;
-            UnityEngine.Object.Destroy(button.GetComponent<Rigidbody>());
-            button.GetComponent<BoxCollider>().isTrigger = true;
-
-            var renderer = button.GetComponent<Renderer>();
-            renderer.enabled = true;
-
-            buttonObjects.Add(button);
-
-            var buttonInfo = new ButtonInfo
-            {
-                ButtonText = "Disconnect",
-                EnableAction = () => PhotonNetwork.Disconnect(),
-                Togglable = false,
-                Notification = "Disconnecting from room..."
-            };
-
-            var buttonComponent = button.AddComponent<ButtonComponent>();
-            buttonComponent.Initialize(buttonInfo);
-        }
-
-        private static void ParentButtonsToMenu()
-        {
-            float buttonOffset = 0.1f;
-            float buttonSpacing = 0.1f;
-            int i = 0;
-
-            foreach (var button in buttonObjects)
-            {
-                if (button != null)
-                {
-                    button.transform.parent = Menu.transform;
-                    button.transform.localScale = new Vector3(0.06f, 0.9f, 0.09f);
-                    button.transform.localPosition = new Vector3(0.56f, 0f, 0.32f - buttonOffset - i * buttonSpacing);
-
-                    // Ensure renderer enabled (in case something disables it)
-                    var renderer = button.GetComponent<Renderer>();
-                    renderer.enabled = true;
-
-                    i++;
-                }
-            }
-        }
-
-        private static void SetButtonVisibility(bool visible)
-        {
-            foreach (var button in buttonObjects)
-            {
-                if (button != null)
-                {
-                    button.SetActive(visible);
-                }
-            }
-        }
-    }
-
-    public class ButtonComponent : MonoBehaviour
-    {
-        public ButtonInfo ButtonInfo { get; private set; }
-        public string RelatedText { get; set; }
-
-        public void Initialize(ButtonInfo buttonInfo)
-        {
-            ButtonInfo = buttonInfo;
-            RelatedText = buttonInfo.ButtonText;
-        }
-
-        void OnTriggerEnter(Collider other)
-        {
-            if (ButtonInfo != null)
-            {
-                ButtonInfo.EnableAction?.Invoke();
-                if (!string.IsNullOrEmpty(ButtonInfo.Notification))
-                {
-                    NotificationLib.Notifications.SendNotificationTagged("green", "TOOLTIP", "white", ButtonInfo.Notification);
-                }
-            }
         }
     }
 }
